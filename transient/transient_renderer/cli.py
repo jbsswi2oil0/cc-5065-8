@@ -18,6 +18,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from transient_renderer.render import render, pixel_profile
+from transient_renderer.kernel import bin_center
 from transient_renderer.scenes import PRESETS, C
 
 
@@ -26,14 +27,14 @@ def _summary(result):
     peak_bin = max(
         range(g["n_bins"]),
         key=lambda k: sum(sum(px[k]) for px in result["pixel_time"]))
-    peak_t = g["t_min"] + (peak_bin + 0.5) * g["dt"]
+    peak_t = bin_center(peak_bin, g)
     return {
         "scene": result["scene_name"],
         "resolution": result["resolution"],
         "samples": result["samples"],
         "kernel": result["kernel"],
         "n_time_bins": g["n_bins"],
-        "time_window_ns": [g["t_min"], g["t_min"] + g["n_bins"] * g["dt"]],
+        "time_window_ns": [g["t_min"], g["t_end"]],
         "peak_time_ns": peak_t,
         "energy_total": result["energy_total"],
         "edge_loss": result["energy_lost_edge"],

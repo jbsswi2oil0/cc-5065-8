@@ -1,6 +1,7 @@
 """Render orchestration: path tracing + time/OPL binning + gate readout."""
 import math
-from .kernel import Kernel, make_grid, deposit, gate_energy, centroid
+from .kernel import (Kernel, make_grid, deposit, gate_energy, centroid,
+                     bin_index, bin_center)
 from .tracer import trace_scene
 from .scenes import PRESETS
 
@@ -21,8 +22,8 @@ def render(preset, samples=8, max_bounces=6, kernel_kind="point",
                           max_bounces=max_bounces, seed=seed,
                           progress=progress)
 
-    n_time = int(round((t_max - t_min) / dt_ns))
-    time_grid = make_grid(t_min, dt_ns, n_time)
+    n_time = max(0, int(math.ceil((t_max - t_min) / dt_ns - 1e-9)))
+    time_grid = make_grid(t_min, dt_ns, n_time, t_end=t_max)
     n_opl = int(math.ceil((t_max * scene.c_vacuum * 2.2) / opl_bin_m))
     opl_max = n_opl * opl_bin_m
     opl_grid = make_grid(0.0, opl_bin_m, n_opl)
@@ -59,14 +60,14 @@ def render(preset, samples=8, max_bounces=6, kernel_kind="point",
     # no sub-bin information (proves ordering cannot be recovered).
     coarse = None
     if historical:
-        n_coarse = int(round((t_max - t_min) / coarse_dt_ns))
-        cgrid = make_grid(t_min, coarse_dt_ns, n_coarse)
+        n_coarse = max(0, int(math.ceil((t_max - t_min) / coarse_dt_ns - 1e-9)))
+        cgrid = make_grid(t_min, coarse_dt_ns, n_coarse, t_end=t_max)
         coarse_bins = [0.0] * n_coarse
-        fine_per_coarse = max(1, int(round(coarse_dt_ns / dt_ns)))
         for px_bins in pixel_time:
             for k, rgb in enumerate(px_bins):
-                ck = min(n_coarse - 1, k // fine_per_coarse)
-                coarse_bins[ck] += (rgb[0] + rgb[1] + rgb[2]) / 3.0
+                ck = bin_index(bin_center(k, time_grid), cgrid)
+                if 0 <= ck < n_coarse:
+                    coarse_bins[ck] += (rgb[0] + rgb[1] + rgb[2]) / 3.0
         coarse = {"grid": cgrid, "bins": coarse_bins}
 
     frames = _frames(pixel_time, time_grid, width, height)
@@ -98,6 +99,65 @@ def render(preset, samples=8, max_bounces=6, kernel_kind="point",
     result["gate_readout"] = evaluate_gates(result)
     result["readout_decision"] = readout_decision(result)
     return result
+
+
+def rebin_at_origin(result, t_min, t_max=None):
+    """Re-deposit the *same exact arrival times* on a grid with a new origin.
+
+    This is the reversible "move the recording origin" operation: because the
+    deposit is always a function of the exact arrival_ns, shifting the origin
+    (even by half a bin) and shifting it back reproduces the original bins.
+    Shifting and *integrating* already-binned energy instead would require
+    inventing sub-bin order, so it is never done here.
+
+    Returns a fresh result dict (the input is untouched) whose grids, bins,
+    frames, losses and readouts all refer to [t_min, t_end).
+    """
+    if t_max is None:
+        t_max = result["time_grid"]["t_end"]
+    scene = result["scene"]
+    kernel = Kernel(result["kernel"]["kind"],
+                    result["kernel"]["width_ns"])
+    width, height = result["resolution"]
+
+    n_time = max(0, int(math.ceil((t_max - t_min) / result["time_grid"]["dt"]
+                                  - 1e-9)))
+    time_grid = make_grid(t_min, result["time_grid"]["dt"], n_time,
+                          t_end=t_max)
+    n_opl = result["opl_grid"]["n_bins"]
+    opl_bin_m = result["opl_grid"]["dt"]
+    opl_grid = make_grid(0.0, opl_bin_m, n_opl)
+
+    pixel_time = [[[0.0, 0.0, 0.0] for _ in range(n_time)]
+                  for _ in range(width * height)]
+    pixel_opl = [[0.0] * n_opl for _ in range(width * height)]
+    energy_lost_edge = 0.0
+    energy_total = 0.0
+    for rec in result["records"]:
+        idx = rec.py * width + rec.px
+        w = list(rec.weight)
+        lum = sum(w) / 3.0
+        energy_total += lum
+        res = deposit(pixel_time[idx], rec.arrival_ns, w, kernel, time_grid)
+        energy_lost_edge += lum * res["lost_edge"]
+        ob = int(rec.opl_m / opl_bin_m)
+        if 0 <= ob < n_opl:
+            pixel_opl[idx][ob] += lum
+
+    out = dict(result)
+    out["time_grid"] = time_grid
+    out["opl_grid"] = {"t_min": 0.0, "dt": opl_bin_m, "n_bins": n_opl,
+                       "opl_max_m": n_opl * opl_bin_m}
+    out["pixel_time"] = pixel_time
+    out["pixel_opl"] = pixel_opl
+    out["frames"] = _frames(pixel_time, time_grid, width, height)
+    out["energy_lost_edge"] = energy_lost_edge
+    out["energy_total"] = energy_total
+    out["coarse"] = None
+    out["gates"] = list(result["gates"])
+    out["gate_readout"] = evaluate_gates(out)
+    out["readout_decision"] = readout_decision(out)
+    return out
 
 
 def default_gates(scene):

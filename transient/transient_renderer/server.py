@@ -98,8 +98,13 @@ def serialize(result, ui_max_bins=260):
     ]
     pixel_opl = [thin(bins) for bins in result["pixel_opl"]]
     grid = result["time_grid"]
+    ui_edges = [grid["t_min"] + i * grid["dt"] * stride
+                for i in range(len(thin_frames) + 1)]
+    if ui_edges:
+        ui_edges[-1] = grid["t_end"]
     ui_grid = {"t_min": grid["t_min"], "dt": grid["dt"] * stride,
-               "n_bins": len(thin_frames)}
+               "n_bins": len(thin_frames), "t_end": grid["t_end"],
+               "edges": ui_edges}
     coarse = result["coarse"]
     if coarse is not None:
         coarse = {"grid": coarse["grid"], "bins": coarse["bins"]}
@@ -203,9 +208,14 @@ def _profile_from_payload(payload, px, py):
     ob = payload["pixel_opl"][idx]
     grid = payload["time_grid"]
     total = sum(lum)
+    edges = grid.get("edges")
+    if edges:
+        centres = [0.5 * (edges[k] + edges[k + 1]) for k in range(len(lum))]
+    else:
+        centres = [grid["t_min"] + (k + 0.5) * grid["dt"]
+                   for k in range(len(lum))]
     centroid = (
-        sum((grid["t_min"] + (k + 0.5) * grid["dt"]) * e
-            for k, e in enumerate(lum)) / total
+        sum(centres[k] * e for k, e in enumerate(lum)) / total
     ) if total > 0 else None
     return {
         "px": px, "py": py,

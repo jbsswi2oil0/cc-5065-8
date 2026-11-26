@@ -59,8 +59,10 @@ function drawFrame(idx) {
     }
   }
   const g = STATE.time_grid;
+  const left = g.edges ? g.edges[idx] : g.t_min + idx * g.dt;
+  const right = g.edges ? g.edges[idx + 1] : g.t_min + (idx + 1) * g.dt;
   $("sliceIdx").textContent = idx;
-  $("sliceTime").textContent = (g.t_min + (idx + 0.5) * g.dt).toFixed(2);
+  $("sliceTime").textContent = (0.5 * (left + right)).toFixed(2);
   drawSteady();
 }
 

@@ -8,7 +8,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = ["test_kernels.py", "test_boundary.py", "test_two_gate.py",
-         "test_physics.py"]
+         "test_origin_remap.py", "test_physics.py"]
 
 rc = 0
 for name in TESTS:

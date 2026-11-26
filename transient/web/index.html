@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>瞬态光传输渲染实验窗口</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header>
+  <h1>瞬态光传输渲染 · Transient Light Transport</h1>
+  <p class="sub">每条光路累计传播时间，能量按核分配到时间箱；所有切片均由实时蒙特卡洛瞬态追踪生成。</p>
+</header>
+
+<main>
+  <section class="panel controls">
+    <h2>光照实验参数</h2>
+    <label>场景
+      <select id="scene">
+        <option value="two_gate">双门实验（真空 vs 慢速介质，同刻到达）</option>
+        <option value="path_lengths">不同路径长度</option>
+        <option value="mirror_detour">镜面绕行</option>
+        <option value="indirect_depth">有限深度间接照明</option>
+      </select>
+    </label>
+    <div class="grid2">
+      <label>每像素采样 <input id="samples" type="number" value="10" min="1" max="64" /></label>
+      <label>最大反弹 <input id="bounces" type="number" value="5" min="0" max="10" /></label>
+      <label>分辨率宽 <input id="width" type="number" value="36" min="8" max="96" /></label>
+      <label>分辨率高 <input id="height" type="number" value="27" min="6" max="72" /></label>
+      <label>时间箱宽 dt (ns) <input id="dt" type="number" value="0.1" step="0.05" min="0.02" /></label>
+      <label>时间窗口上限 (ns) <input id="tmax" type="number" value="250" step="10" /></label>
+    </div>
+    <label>时间沉积核
+      <select id="kernel">
+        <option value="point">点沉积（Dirac）</option>
+        <option value="box">盒形（已知响应宽度，跨门分裂）</option>
+        <option value="gaussian">高斯（截断 + 重归一化）</option>
+      </select>
+    </label>
+    <label>探头响应宽度 (ns) <input id="kwidth" type="number" value="0.3" step="0.05" min="0" /></label>
+    <label class="check"><input id="historical" type="checkbox" /> 历史粗箱数据（只存整箱总量）</label>
+    <label>粗箱宽度 (ns) <input id="coarseDt" type="number" value="2" step="0.5" /></label>
+    <button id="renderBtn" class="primary">运行瞬态渲染</button>
+    <div id="status" class="status">等待渲染。</div>
+    <div class="units">
+      长度单位：米（m）· 时间单位：纳秒（ns）<br />
+      真空光速 c = 0.299792458 m/ns · 介质内速度 c / IOR
+    </div>
+  </section>
+
+  <section class="panel views">
+    <div class="view-head">
+      <h2>瞬态切片</h2>
+      <div class="slice-controls">
+        <button id="playBtn">播放波前</button>
+        <span>切片时间 <b id="sliceTime">–</b> ns / 箱 <b id="sliceIdx">–</b></span>
+      </div>
+    </div>
+    <input id="timeSlider" type="range" min="0" max="0" value="0" disabled />
+    <div class="canvas-wrap">
+      <canvas id="sliceCanvas" width="432" height="324"></canvas>
+      <canvas id="steadyCanvas" width="160" height="120" title="稳态参考（时间积分）"></canvas>
+    </div>
+    <p class="hint">点击瞬态切片任意像素查看该像素的时间响应与光程分布。</p>
+
+    <div class="gate-panel">
+      <h3>可移动曝光门（拖动滑条，交界即两门分界）</h3>
+      <div class="gate-row">
+        <label>G1 起点 <input id="g1start" type="number" step="0.5" /></label>
+        <label>交界 <input id="gboundary" type="number" step="0.5" /></label>
+        <label>G2 终点 <input id="g2end" type="number" step="0.5" /></label>
+      </div>
+      <input id="gateRange" type="range" min="0" max="1000" value="500" />
+      <div class="gate-bar" id="gateBar">
+        <div class="g1" id="g1fill"></div>
+        <div class="g2" id="g2fill"></div>
+      </div>
+      <button id="applyGate">应用门并重新读出（不重新追踪）</button>
+    </div>
+  </section>
+
+  <section class="panel analysis">
+    <h2>读出端分析</h2>
+    <div id="decision" class="decision">尚未渲染。</div>
+    <h3>两门能量与门外泄漏</h3>
+    <table id="gateTable"><tbody></tbody></table>
+    <h3>光路能量（按光源路径）</h3>
+    <table id="routeTable"><tbody></tbody></table>
+    <h3>解析对照（可独立复算）</h3>
+    <pre id="analytic">–</pre>
+  </section>
+
+  <section class="panel profiles">
+    <h2>像素时间响应 <span id="profileLabel">（未选择像素）</span></h2>
+    <canvas id="timeChart" width="720" height="200"></canvas>
+    <h2>光程长度分布（OPL，米）</h2>
+    <canvas id="oplChart" width="720" height="180"></canvas>
+    <h2>历史粗箱（不可恢复亚箱顺序）</h2>
+    <canvas id="coarseChart" width="720" height="140"></canvas>
+  </section>
+</main>
+
+<footer>
+  图形入口：本页面（<code>python3 -m transient_renderer.server</code>）。CLI 仅作辅助：
+  <code>python3 -m transient_renderer.cli render --scene two_gate</code>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
